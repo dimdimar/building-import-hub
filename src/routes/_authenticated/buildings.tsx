@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
-import { importBuildings, TEMPLATE_COLUMNS } from "@/lib/buildings.functions";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -14,6 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+
+const TEMPLATE_COLUMNS = ["name", "address", "city", "country", "floors", "year_built"] as const;
 
 const buildingsQuery = queryOptions({
   queryKey: ["buildings"],
@@ -67,19 +68,37 @@ function BuildingsPage() {
 
   async function onFile(file: File) {
     setBusy(true);
+
     try {
-      const res = await importBuildings({
-        data: { fileBase64: toBase64(await file.arrayBuffer()) },
+      const fileBase64 = toBase64(await file.arrayBuffer());
+
+      const { data, error } = await supabase.functions.invoke<{
+        inserted: number;
+        skipped: number;
+      }>("import-buildings", {
+        body: { fileBase64 },
       });
+
+      if (error) throw error;
+      if (!data) throw new Error("No response from the server");
+
       toast.success(
-        `Imported ${res.inserted} buildings${res.skipped ? `, skipped ${res.skipped} without a name` : ""}.`,
+        `Imported ${data.inserted} buildings${
+          data.skipped ? `, skipped ${data.skipped} without a name` : ""
+        }.`,
       );
-      await qc.invalidateQueries({ queryKey: ["buildings"] });
-    } catch (e) {
-      toast.error((e as Error).message);
+
+      await qc.invalidateQueries({
+        queryKey: ["buildings"],
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Import failed");
     } finally {
       setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
+
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
     }
   }
 
